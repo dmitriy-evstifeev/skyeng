@@ -1,0 +1,57 @@
+Что было сделано:
+
+1. Создана виртуалка с сервером Ubuntu;
+2. На сервер установлены:
+  2.1. MySql как БД источника (sourcedb)
+  2.2. PostgreSql как БД DWH (dwh)
+  2.1. Airflow
+3. Разработка производилась через ssh с Windows. Из инструментов сильно помогли IDE dbeaver, Visual Studio Code и Pycharm;
+4. Созданы объекты БД:
+  4.1. На sourcedb:
+    CREATE TABLE `order`(  
+      id bigint primary key auto_increment,  
+      student_id bigint,  
+      teacher_id bigint,  
+      stage varchar(10),  
+      status varchar(512),  
+      created_at timestamp,  
+      updated_at timestamp  
+    );
+   4.2. На dwh:
+    a) create table temp.tmp_order_previous / temp.tmp_order_current (
+          id bigint,
+          student_id bigint,
+          teacher_id bigint,
+          stage varchar(10),
+          status varchar(512),
+          created_at timestamp,
+          updated_at timestamp
+        );
+        
+     б) create sequence 
+	        public.seq_raw_order
+        start with 1;
+        
+     в) CREATE TABLE raw_order (
+            id bigint primary key,
+            order_id bigint,
+            student_id bigint,
+            teacher_id bigint,
+            stage varchar(10),
+            status varchar(512),
+            row_hash text,
+            created_at timestamp,
+            updated_at timestamp
+         );
+
+Весь остальной код видно в репозитории.
+
+Принцип работы:
+1. Каждую минуту отрабатывает ДАГ из order_add_uniq_rec.py. Он добавляет рандомную строку в таблицу источника;
+2. Каждые 3 минуты запускается ДАГ из order_duplicate_rec.py - дублирует имеющуюся строку из таблицы источника с новым ключом. Создал для демонстрации дедубликации;
+3. Каждые 5 минут отрабатывает order_to_csv.py, который забирает текущую таблицу источника и кладет ее в ..\airflow\dumps в формате *.csv. Предыдущий дамп при этом удаляется;
+4. Наконец, раз в пять минут активируется order_csv_to_pg.py. Сначала он забирает данные из csv и в кладет их в dwh.test (там две таблицы: с содержимым предыдущего дампа и текущего).
+После этого на основании двух таблиц дампа отбираются только новые уникальные записи из текущего дампа по хешу всех полей (ключ не входит в хеш).
+При наличии дубликатов по хешу отбирается запись с минимальным ключом. В конце все складывается в dwh.public.raw_order.
+
+P.S. я понимаю, что здесь очень много всего можно доработать и добавить, но для демонстрации, кажется, этого должно хватить :)
